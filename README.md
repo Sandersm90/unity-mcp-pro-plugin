@@ -100,7 +100,7 @@ Tests cover: `BaseCommand` parameter helpers, `CommandRouter` dispatch, `TypePar
 
 - [Website](https://unity-mcp.abyo.net/)
 - [MCP Server (itch.io)](https://y1uda.itch.io/unity-mcp-pro)
-- [Discord](https://discord.gg/F4gR739y)
+- [Discord](https://discord.gg/9ccwueac)
 
 ## License
 
