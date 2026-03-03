@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
@@ -25,6 +26,11 @@ namespace UnityMcpPro
 
         private static object RunTests(Dictionary<string, object> p)
         {
+            // Auto-save dirty scene before running tests to avoid save dialog
+            var currentScene = SceneManager.GetActiveScene();
+            if (currentScene.isDirty && !string.IsNullOrEmpty(currentScene.path))
+                EditorSceneManager.SaveScene(currentScene);
+
             string testMode = GetStringParam(p, "test_mode", "edit");
             string filter = GetStringParam(p, "filter");
             string category = GetStringParam(p, "category");

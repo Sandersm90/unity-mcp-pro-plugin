@@ -366,8 +366,9 @@ namespace UnityMcpPro
                     else
                     {
                         frame.WriteByte(0x80 | 127);
+                        long len64 = len;
                         for (int i = 7; i >= 0; i--)
-                            frame.WriteByte((byte)((len >> (i * 8)) & 0xFF));
+                            frame.WriteByte((byte)((len64 >> (i * 8)) & 0xFF));
                     }
 
                     // Generate mask key

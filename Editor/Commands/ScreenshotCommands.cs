@@ -15,10 +15,26 @@ namespace UnityMcpPro
             router.Register("capture_frames", CaptureFrames);
         }
 
+        private static byte[] EncodeTexture(Texture2D tex, string format, int quality)
+        {
+            if (format == "jpg" || format == "jpeg")
+                return tex.EncodeToJPG(quality);
+            return tex.EncodeToPNG();
+        }
+
+        private static string GetMimeType(string format)
+        {
+            if (format == "jpg" || format == "jpeg")
+                return "image/jpeg";
+            return "image/png";
+        }
+
         private static object GetEditorScreenshot(Dictionary<string, object> p)
         {
-            int width = GetIntParam(p, "width", 800);
-            int height = GetIntParam(p, "height", 600);
+            int width = GetIntParam(p, "width", 320);
+            int height = GetIntParam(p, "height", 240);
+            string format = GetStringParam(p, "format", "jpg");
+            int quality = GetIntParam(p, "quality", 75);
 
             var sceneView = SceneView.lastActiveSceneView;
             if (sceneView == null)
@@ -40,8 +56,8 @@ namespace UnityMcpPro
             tex.Apply();
             RenderTexture.active = null;
 
-            byte[] png = tex.EncodeToPNG();
-            string base64 = Convert.ToBase64String(png);
+            byte[] imageData = EncodeTexture(tex, format, quality);
+            string base64 = Convert.ToBase64String(imageData);
 
             UnityEngine.Object.DestroyImmediate(tex);
             rt.Release();
@@ -52,14 +68,18 @@ namespace UnityMcpPro
                 { "image", base64 },
                 { "width", width },
                 { "height", height },
+                { "format", format },
+                { "mimeType", GetMimeType(format) },
                 { "source", "scene_view" }
             };
         }
 
         private static object GetGameScreenshot(Dictionary<string, object> p)
         {
-            int width = GetIntParam(p, "width", 800);
-            int height = GetIntParam(p, "height", 600);
+            int width = GetIntParam(p, "width", 320);
+            int height = GetIntParam(p, "height", 240);
+            string format = GetStringParam(p, "format", "jpg");
+            int quality = GetIntParam(p, "quality", 75);
 
             Camera gameCamera = Camera.main;
             if (gameCamera == null)
@@ -84,8 +104,8 @@ namespace UnityMcpPro
             tex.Apply();
             RenderTexture.active = null;
 
-            byte[] png = tex.EncodeToPNG();
-            string base64 = Convert.ToBase64String(png);
+            byte[] imageData = EncodeTexture(tex, format, quality);
+            string base64 = Convert.ToBase64String(imageData);
 
             UnityEngine.Object.DestroyImmediate(tex);
             rt.Release();
@@ -96,6 +116,8 @@ namespace UnityMcpPro
                 { "image", base64 },
                 { "width", width },
                 { "height", height },
+                { "format", format },
+                { "mimeType", GetMimeType(format) },
                 { "source", "game_camera" },
                 { "cameraName", gameCamera.name }
             };
@@ -154,8 +176,8 @@ namespace UnityMcpPro
 
             diffTex.SetPixels32(diffPixels);
             diffTex.Apply();
-            byte[] diffPng = diffTex.EncodeToPNG();
-            string diffBase64 = Convert.ToBase64String(diffPng);
+            byte[] diffJpg = diffTex.EncodeToJPG(75);
+            string diffBase64 = Convert.ToBase64String(diffJpg);
 
             UnityEngine.Object.DestroyImmediate(texA);
             UnityEngine.Object.DestroyImmediate(texB);
@@ -178,8 +200,9 @@ namespace UnityMcpPro
         {
             int frameCount = GetIntParam(p, "frame_count", 5);
             float interval = GetFloatParam(p, "interval", 0.5f);
-            int width = GetIntParam(p, "width", 400);
-            int height = GetIntParam(p, "height", 300);
+            int width = GetIntParam(p, "width", 320);
+            int height = GetIntParam(p, "height", 240);
+            int quality = GetIntParam(p, "quality", 60);
 
             if (!EditorApplication.isPlaying)
                 throw new InvalidOperationException("Play mode is required for frame capture");
@@ -216,13 +239,13 @@ namespace UnityMcpPro
                     tex.Apply();
                     RenderTexture.active = null;
 
-                    byte[] png = tex.EncodeToPNG();
+                    byte[] jpg = tex.EncodeToJPG(quality);
 
                     frames.Add(new Dictionary<string, object>
                     {
                         { "frame", captured },
                         { "timestamp", currentTime },
-                        { "image", Convert.ToBase64String(png) }
+                        { "image", Convert.ToBase64String(jpg) }
                     });
 
                     UnityEngine.Object.DestroyImmediate(tex);

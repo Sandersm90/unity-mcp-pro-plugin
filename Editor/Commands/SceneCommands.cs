@@ -108,7 +108,11 @@ namespace UnityMcpPro
             if (!System.IO.File.Exists(path))
                 throw new System.ArgumentException($"Scene file not found: {path}");
 
-            EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo();
+            // Auto-save modified scenes without dialog to avoid blocking MCP operations
+            var currentScene = SceneManager.GetActiveScene();
+            if (currentScene.isDirty)
+                EditorSceneManager.SaveScene(currentScene);
+
             EditorSceneManager.OpenScene(path);
 
             return Success($"Opened scene: {path}");
@@ -130,6 +134,11 @@ namespace UnityMcpPro
         {
             if (EditorApplication.isPlaying)
                 return Success("Already in Play Mode");
+
+            // Auto-save dirty scene before entering Play Mode to avoid save dialog
+            var currentScene = SceneManager.GetActiveScene();
+            if (currentScene.isDirty && !string.IsNullOrEmpty(currentScene.path))
+                EditorSceneManager.SaveScene(currentScene);
 
             EditorApplication.isPlaying = true;
             return Success("Entering Play Mode");
