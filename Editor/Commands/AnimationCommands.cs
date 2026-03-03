@@ -21,6 +21,7 @@ namespace UnityMcpPro
 
         private static object CreateAnimationClip(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("create_animation_clip");
             string path = GetStringParam(p, "path");
             float length = GetFloatParam(p, "length", 1f);
             bool loop = GetBoolParam(p, "loop");
@@ -58,6 +59,7 @@ namespace UnityMcpPro
 
         private static object AddAnimationKeyframe(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("add_animation_keyframe");
             string clipPath = GetStringParam(p, "clip_path");
             string propertyPath = GetStringParam(p, "property_path");
             string componentType = GetStringParam(p, "component_type");
@@ -151,6 +153,7 @@ namespace UnityMcpPro
 
         private static object CreateAnimatorController(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("create_animator_controller");
             string path = GetStringParam(p, "path");
             if (string.IsNullOrEmpty(path))
                 throw new ArgumentException("path is required");
@@ -190,6 +193,7 @@ namespace UnityMcpPro
 
         private static object AddAnimatorState(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("add_animator_state");
             string controllerPath = GetStringParam(p, "controller_path");
             string stateName = GetStringParam(p, "state_name");
             string clipPath = GetStringParam(p, "clip_path");
@@ -230,6 +234,7 @@ namespace UnityMcpPro
 
         private static object AddAnimatorTransition(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("add_animator_transition");
             string controllerPath = GetStringParam(p, "controller_path");
             string fromState = GetStringParam(p, "from_state");
             string toState = GetStringParam(p, "to_state");
@@ -313,6 +318,7 @@ namespace UnityMcpPro
 
         private static object SetAnimatorParameter(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("set_animator_parameter");
             string controllerPath = GetStringParam(p, "controller_path");
             string paramName = GetStringParam(p, "name");
             string typeStr = GetStringParam(p, "type", "Bool");

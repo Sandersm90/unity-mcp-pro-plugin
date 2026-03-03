@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace UnityMcpPro
 {
@@ -38,6 +39,9 @@ namespace UnityMcpPro
 
             if (!string.IsNullOrEmpty(preset))
                 ApplyPreset(ps, preset);
+
+            // Auto-assign URP particle material if available
+            ApplyUrpParticleMaterial(go.GetComponent<ParticleSystemRenderer>());
 
             return new Dictionary<string, object>
             {
@@ -84,6 +88,8 @@ namespace UnityMcpPro
                         main.maxParticles = GetIntParam(props, "maxParticles", 1000);
                     if (props.ContainsKey("gravityModifier"))
                         main.gravityModifier = GetFloatParam(props, "gravityModifier");
+                    if (props.ContainsKey("startColor"))
+                        main.startColor = TypeParser.ParseColor(GetStringParam(props, "startColor"));
                     break;
                 case "emission":
                     var emission = ps.emission;
@@ -106,6 +112,9 @@ namespace UnityMcpPro
                         shape.radius = GetFloatParam(props, "radius", 1f);
                     if (props.ContainsKey("angle"))
                         shape.angle = GetFloatParam(props, "angle", 25f);
+                    string scaleStr = GetStringParam(props, "scale");
+                    if (!string.IsNullOrEmpty(scaleStr))
+                        shape.scale = TypeParser.ParseVector3(scaleStr);
                     break;
                 case "coloroverlifetime":
                     var col = ps.colorOverLifetime;
@@ -250,6 +259,37 @@ namespace UnityMcpPro
             };
         }
 
+        private static void ApplyUrpParticleMaterial(ParticleSystemRenderer renderer)
+        {
+            if (renderer == null) return;
+
+            // Check if project uses URP
+            var pipeline = GraphicsSettings.currentRenderPipeline;
+            if (pipeline == null) return; // Built-in RP — default material is fine
+
+            // Try URP particle shaders in preference order
+            string[] shaderNames = new[]
+            {
+                "Universal Render Pipeline/Particles/Unlit",
+                "Universal Render Pipeline/Particles/Lit",
+                "Particles/Standard Unlit"
+            };
+
+            Shader shader = null;
+            foreach (var name in shaderNames)
+            {
+                shader = Shader.Find(name);
+                if (shader != null) break;
+            }
+
+            if (shader != null)
+            {
+                var mat = new Material(shader);
+                mat.name = "MCP_ParticleMat";
+                renderer.sharedMaterial = mat;
+            }
+        }
+
         private static void ApplyPreset(ParticleSystem ps, string preset)
         {
             var main = ps.main;
@@ -262,6 +302,7 @@ namespace UnityMcpPro
                     main.startLifetime = 1.5f;
                     main.startSpeed = 2f;
                     main.startSize = 0.5f;
+                    main.startColor = new Color(1f, 0.5f, 0.1f, 1f);
                     main.gravityModifier = -0.2f;
                     main.maxParticles = 200;
                     emission.rateOverTime = 50;
@@ -273,6 +314,7 @@ namespace UnityMcpPro
                     main.startLifetime = 4f;
                     main.startSpeed = 0.5f;
                     main.startSize = 1f;
+                    main.startColor = new Color(0.6f, 0.6f, 0.6f, 0.5f);
                     main.gravityModifier = -0.05f;
                     main.maxParticles = 100;
                     emission.rateOverTime = 15;
@@ -283,6 +325,7 @@ namespace UnityMcpPro
                     main.startLifetime = 0.5f;
                     main.startSpeed = 5f;
                     main.startSize = 0.1f;
+                    main.startColor = new Color(1f, 0.95f, 0.6f, 1f);
                     main.gravityModifier = 0.5f;
                     main.maxParticles = 300;
                     emission.rateOverTime = 100;
@@ -293,6 +336,7 @@ namespace UnityMcpPro
                     main.startLifetime = 1.5f;
                     main.startSpeed = 15f;
                     main.startSize = 0.05f;
+                    main.startColor = new Color(0.7f, 0.8f, 1f, 0.6f);
                     main.gravityModifier = 1f;
                     main.maxParticles = 1000;
                     emission.rateOverTime = 300;
@@ -304,6 +348,7 @@ namespace UnityMcpPro
                     main.startLifetime = 1f;
                     main.startSpeed = 10f;
                     main.startSize = 0.3f;
+                    main.startColor = new Color(1f, 0.6f, 0.2f, 1f);
                     main.gravityModifier = 0.5f;
                     main.maxParticles = 500;
                     main.loop = false;

@@ -131,6 +131,12 @@ namespace UnityMcpPro
             return null;
         }
 
+        protected static void ThrowIfPlaying(string commandName)
+        {
+            if (EditorApplication.isPlaying)
+                throw new InvalidOperationException($"'{commandName}' cannot be used during Play Mode. Use stop_scene first.");
+        }
+
         protected static void RecordUndo(UnityEngine.Object obj, string actionName)
         {
             Undo.RecordObject(obj, $"MCP: {actionName}");

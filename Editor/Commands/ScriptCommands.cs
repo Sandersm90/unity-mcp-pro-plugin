@@ -17,6 +17,8 @@ namespace UnityMcpPro
             router.Register("edit_script", EditScript);
             router.Register("attach_script", AttachScript);
             router.Register("get_compilation_errors", GetCompilationErrors);
+
+            EnsureCompilationListener();
         }
 
         private static object ListScripts(Dictionary<string, object> p)
@@ -82,6 +84,7 @@ namespace UnityMcpPro
 
         private static object CreateScript(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("create_script");
             string path = GetStringParam(p, "path");
             string content = GetStringParam(p, "content");
             string baseClass = GetStringParam(p, "base_class", "MonoBehaviour");
@@ -118,6 +121,7 @@ namespace UnityMcpPro
 
         private static object EditScript(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("edit_script");
             string path = GetStringParam(p, "path");
             string fullContent = GetStringParam(p, "content");
 
@@ -218,21 +222,30 @@ namespace UnityMcpPro
             };
         }
 
-        private static readonly List<Dictionary<string, object>> _compilationErrors = new List<Dictionary<string, object>>();
-        private static readonly List<Dictionary<string, object>> _compilationWarnings = new List<Dictionary<string, object>>();
+        private const string SESSION_KEY_ERRORS = "MCP_CompilationErrors";
+        private const string SESSION_KEY_WARNINGS = "MCP_CompilationWarnings";
         private static bool _compilationListenerRegistered;
 
         private static void EnsureCompilationListener()
         {
             if (_compilationListenerRegistered) return;
             _compilationListenerRegistered = true;
+            CompilationPipeline.compilationStarted += OnCompilationStarted;
             CompilationPipeline.assemblyCompilationFinished += OnAssemblyCompilationFinished;
+        }
+
+        private static void OnCompilationStarted(object context)
+        {
+            // Clear previous results when a new compilation starts
+            SessionState.SetString(SESSION_KEY_ERRORS, "[]");
+            SessionState.SetString(SESSION_KEY_WARNINGS, "[]");
         }
 
         private static void OnAssemblyCompilationFinished(string assemblyPath, CompilerMessage[] messages)
         {
-            _compilationErrors.Clear();
-            _compilationWarnings.Clear();
+            // Accumulate across all assemblies (each assembly fires this event separately)
+            var errors = SessionStateGetList(SESSION_KEY_ERRORS);
+            var warnings = SessionStateGetList(SESSION_KEY_WARNINGS);
 
             foreach (var msg in messages)
             {
@@ -245,24 +258,49 @@ namespace UnityMcpPro
                 };
 
                 if (msg.type == CompilerMessageType.Error)
-                    _compilationErrors.Add(entry);
+                    errors.Add(entry);
                 else if (msg.type == CompilerMessageType.Warning)
-                    _compilationWarnings.Add(entry);
+                    warnings.Add(entry);
             }
+
+            SessionState.SetString(SESSION_KEY_ERRORS, JsonHelper.Serialize(errors));
+            SessionState.SetString(SESSION_KEY_WARNINGS, JsonHelper.Serialize(warnings));
         }
 
         private static object GetCompilationErrors(Dictionary<string, object> p)
         {
             EnsureCompilationListener();
+            bool includeConsole = GetBoolParam(p, "include_console", true);
 
-            return new Dictionary<string, object>
+            var errors = SessionStateGetList(SESSION_KEY_ERRORS);
+            var warnings = SessionStateGetList(SESSION_KEY_WARNINGS);
+
+            var result = new Dictionary<string, object>
             {
-                { "errors", _compilationErrors },
-                { "warnings", _compilationWarnings },
-                { "error_count", _compilationErrors.Count },
-                { "warning_count", _compilationWarnings.Count },
-                { "has_errors", _compilationErrors.Count > 0 }
+                { "errors", errors },
+                { "warnings", warnings },
+                { "error_count", errors.Count },
+                { "warning_count", warnings.Count },
+                { "has_errors", errors.Count > 0 }
             };
+
+            if (includeConsole)
+            {
+                var consoleErrors = EditorCommands.GetRecentConsoleErrors();
+                result["console_errors"] = consoleErrors;
+                result["console_error_count"] = consoleErrors.Count;
+                if (consoleErrors.Count > 0)
+                    result["has_errors"] = true;
+            }
+
+            return result;
+        }
+
+        private static List<object> SessionStateGetList(string key)
+        {
+            string json = SessionState.GetString(key, "[]");
+            var parsed = JsonHelper.Parse(json);
+            return parsed as List<object> ?? new List<object>();
         }
 
         private static string GenerateTemplate(string className, string baseClass, string ns)

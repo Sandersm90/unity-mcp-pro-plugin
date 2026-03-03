@@ -140,6 +140,7 @@ namespace UnityMcpPro
 
         private static object BakeLighting(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("bake_lighting");
             string modeStr = GetStringParam(p, "mode", "bake");
 
             switch (modeStr.ToLower())

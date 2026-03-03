@@ -266,6 +266,23 @@ namespace UnityMcpPro
                 index++;
         }
 
+        // --- Public Utilities ---
+
+        /// <summary>Serialize any object to JSON string</summary>
+        public static string Serialize(object value)
+        {
+            var sb = new StringBuilder();
+            AppendJsonValue(sb, value);
+            return sb.ToString();
+        }
+
+        /// <summary>Parse a JSON string and return raw object (dict, list, string, number, bool, null)</summary>
+        public static object Parse(string json)
+        {
+            if (string.IsNullOrEmpty(json)) return null;
+            return ParseValue(json, 0, out _);
+        }
+
         // --- JSON Serializer ---
 
         private static void AppendJsonValue(StringBuilder sb, object value)

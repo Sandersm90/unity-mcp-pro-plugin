@@ -73,6 +73,7 @@ namespace UnityMcpPro
 
         private static object CreateScene(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("create_scene");
             string path = GetStringParam(p, "path");
             if (string.IsNullOrEmpty(path))
                 throw new System.ArgumentException("Scene path is required");
@@ -101,6 +102,7 @@ namespace UnityMcpPro
 
         private static object OpenScene(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("open_scene");
             string path = GetStringParam(p, "path");
             if (string.IsNullOrEmpty(path))
                 throw new System.ArgumentException("Scene path is required");
@@ -120,6 +122,7 @@ namespace UnityMcpPro
 
         private static object SaveScene(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("save_scene");
             string path = GetStringParam(p, "path");
             var scene = SceneManager.GetActiveScene();
 

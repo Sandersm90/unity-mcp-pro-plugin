@@ -19,6 +19,7 @@ namespace UnityMcpPro
 
         private static object CreatePrefab(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("create_prefab");
             string goPath = GetStringParam(p, "game_object_path");
             string savePath = GetStringParam(p, "save_path");
 
@@ -161,6 +162,7 @@ namespace UnityMcpPro
 
         private static object ApplyPrefabOverrides(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("apply_prefab_overrides");
             string goPath = GetStringParam(p, "game_object_path");
             if (string.IsNullOrEmpty(goPath))
                 throw new ArgumentException("game_object_path is required");

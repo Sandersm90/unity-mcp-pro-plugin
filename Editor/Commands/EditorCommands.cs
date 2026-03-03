@@ -51,6 +51,29 @@ namespace UnityMcpPro
                 _capturedLogs.RemoveAt(0);
         }
 
+        /// <summary>
+        /// Returns recent console errors/exceptions for use by get_compilation_errors.
+        /// </summary>
+        public static List<object> GetRecentConsoleErrors(int maxLines = 20)
+        {
+            var errors = new List<object>();
+            int startIndex = Math.Max(0, _capturedLogs.Count - maxLines);
+            for (int i = startIndex; i < _capturedLogs.Count; i++)
+            {
+                var entry = _capturedLogs[i];
+                if (entry.type != LogType.Error && entry.type != LogType.Exception)
+                    continue;
+                errors.Add(new Dictionary<string, object>
+                {
+                    { "message", entry.message },
+                    { "type", entry.type.ToString().ToLower() },
+                    { "stackTrace", entry.stackTrace },
+                    { "timestamp", entry.timestamp }
+                });
+            }
+            return errors;
+        }
+
         private static object GetConsoleLogs(Dictionary<string, object> p)
         {
             string typeFilter = GetStringParam(p, "type", "all");
@@ -109,6 +132,7 @@ namespace UnityMcpPro
 
         private static object RefreshAssetDb(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("refresh_asset_db");
             AssetDatabase.Refresh();
             return Success("AssetDatabase refreshed");
         }

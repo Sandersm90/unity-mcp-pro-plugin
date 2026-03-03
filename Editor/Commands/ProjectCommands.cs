@@ -294,6 +294,7 @@ namespace UnityMcpPro
 
         private static object SetProjectSetting(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("set_project_setting");
             string category = GetStringParam(p, "category");
             string key = GetStringParam(p, "key");
             object value = p.ContainsKey("value") ? p["value"] : null;

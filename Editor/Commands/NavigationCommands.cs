@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using UnityEditor;
-using UnityEditor.AI;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -20,12 +19,28 @@ namespace UnityMcpPro
 
         private static object BakeNavMesh(Dictionary<string, object> p)
         {
-            UnityEditor.AI.NavMeshBuilder.BuildNavMesh();
+            ThrowIfPlaying("bake_navmesh");
+            // Unity 6+: Use NavMeshSurface components instead of legacy NavMeshBuilder
+            var surfaceType = System.Type.GetType("Unity.AI.Navigation.NavMeshSurface, Unity.AI.Navigation");
+            if (surfaceType == null)
+                throw new InvalidOperationException("NavMeshSurface not found. Install 'AI Navigation' package.");
+
+            var surfaces = UnityEngine.Object.FindObjectsByType(surfaceType, FindObjectsSortMode.None);
+            if (surfaces.Length == 0)
+                throw new InvalidOperationException("No NavMeshSurface components found in scene. Add a NavMeshSurface component first.");
+
+            var buildMethod = surfaceType.GetMethod("BuildNavMesh");
+            int baked = 0;
+            foreach (var surface in surfaces)
+            {
+                buildMethod.Invoke(surface, null);
+                baked++;
+            }
 
             return new Dictionary<string, object>
             {
                 { "success", true },
-                { "message", "NavMesh bake completed" }
+                { "message", $"NavMesh bake completed ({baked} surface(s))" }
             };
         }
 
@@ -110,27 +125,39 @@ namespace UnityMcpPro
                 throw new ArgumentException("game_object_path is required");
 
             var go = FindGameObject(goPath);
-            var link = Undo.AddComponent<OffMeshLink>(go);
+
+            // Unity 6+: Use NavMeshLink from AI Navigation package via reflection
+            var linkType = System.Type.GetType("Unity.AI.Navigation.NavMeshLink, Unity.AI.Navigation");
+            if (linkType == null)
+                throw new InvalidOperationException("NavMeshLink not found. Install 'AI Navigation' package.");
+
+            var link = Undo.AddComponent(go, linkType);
 
             if (!string.IsNullOrEmpty(startPath))
             {
                 var startGo = FindGameObject(startPath);
-                link.startTransform = startGo.transform;
+                var prop = linkType.GetProperty("startTransform");
+                prop?.SetValue(link, startGo.transform);
             }
             if (!string.IsNullOrEmpty(endPath))
             {
                 var endGo = FindGameObject(endPath);
-                link.endTransform = endGo.transform;
+                var prop = linkType.GetProperty("endTransform");
+                prop?.SetValue(link, endGo.transform);
             }
 
+            bool bidirectional = true;
             if (p.ContainsKey("bidirectional"))
-                link.biDirectional = GetBoolParam(p, "bidirectional", true);
+                bidirectional = GetBoolParam(p, "bidirectional", true);
+
+            var biProp = linkType.GetProperty("bidirectional");
+            biProp?.SetValue(link, bidirectional);
 
             return new Dictionary<string, object>
             {
                 { "success", true },
                 { "gameObject", go.name },
-                { "biDirectional", link.biDirectional }
+                { "biDirectional", bidirectional }
             };
         }
 

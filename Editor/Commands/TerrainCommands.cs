@@ -17,6 +17,7 @@ namespace UnityMcpPro
 
         private static object CreateTerrain(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("create_terrain");
             string name = GetStringParam(p, "name", "Terrain");
             int width = GetIntParam(p, "width", 500);
             int length = GetIntParam(p, "length", 500);
@@ -54,6 +55,7 @@ namespace UnityMcpPro
 
         private static object SetTerrainHeightmap(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("set_terrain_heightmap");
             string goPath = GetStringParam(p, "game_object_path");
             string mode = GetStringParam(p, "mode", "flat");
             float value = GetFloatParam(p, "value", 0f);
@@ -138,6 +140,7 @@ namespace UnityMcpPro
 
         private static object AddTerrainLayer(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("add_terrain_layer");
             string goPath = GetStringParam(p, "game_object_path");
             string diffusePath = GetStringParam(p, "diffuse_texture");
             string normalPath = GetStringParam(p, "normal_texture");
@@ -194,6 +197,7 @@ namespace UnityMcpPro
 
         private static object SetTerrainTrees(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("set_terrain_trees");
             string goPath = GetStringParam(p, "game_object_path");
             string prefabPath = GetStringParam(p, "tree_prefab");
             int count = GetIntParam(p, "count", 100);

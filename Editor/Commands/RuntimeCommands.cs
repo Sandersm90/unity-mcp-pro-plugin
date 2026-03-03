@@ -193,7 +193,7 @@ public static class McpDynamicScript
             string canvasName = GetStringParam(p, "canvas_name");
             string typeFilter = GetStringParam(p, "type_filter", "all");
 
-            var canvases = UnityEngine.Object.FindObjectsOfType<Canvas>();
+            var canvases = UnityEngine.Object.FindObjectsByType<Canvas>(FindObjectsSortMode.None);
             var elements = new List<object>();
 
             foreach (var canvas in canvases)
@@ -281,7 +281,7 @@ public static class McpDynamicScript
             if (string.IsNullOrEmpty(searchText))
                 throw new ArgumentException("text is required");
 
-            var buttons = UnityEngine.Object.FindObjectsOfType<Button>();
+            var buttons = UnityEngine.Object.FindObjectsByType<Button>(FindObjectsSortMode.None);
 
             foreach (var button in buttons)
             {

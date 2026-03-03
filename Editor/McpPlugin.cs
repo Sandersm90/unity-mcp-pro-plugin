@@ -1,3 +1,4 @@
+using System.Linq;
 using UnityEngine;
 using UnityEditor;
 
@@ -111,17 +112,22 @@ namespace UnityMcpPro
             GUILayout.Space(10);
 
             bool connected = _wsServer != null && _wsServer.IsConnected;
+            int count = _wsServer?.ConnectionCount ?? 0;
 
             EditorGUILayout.BeginHorizontal();
             GUILayout.Label("Status:");
             var style = new GUIStyle(EditorStyles.label);
             style.normal.textColor = connected ? Color.green : Color.yellow;
-            GUILayout.Label(connected ? "Connected" : "Waiting for MCP server...", style);
+            string statusText = connected
+                ? $"Connected ({count} session{(count > 1 ? "s" : "")})"
+                : "Waiting for MCP server...";
+            GUILayout.Label(statusText, style);
             EditorGUILayout.EndHorizontal();
 
-            if (_wsServer != null)
+            if (_wsServer != null && connected)
             {
-                EditorGUILayout.LabelField("Port", _wsServer.Port.ToString());
+                var ports = _wsServer.ConnectedPorts.ToArray();
+                EditorGUILayout.LabelField("Ports", string.Join(", ", ports));
             }
 
             GUILayout.Space(10);

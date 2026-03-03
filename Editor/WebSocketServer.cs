@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -11,8 +13,9 @@ using UnityEngine;
 namespace UnityMcpPro
 {
     /// <summary>
-    /// WebSocket client using raw TcpClient for Unity Editor compatibility.
-    /// System.Net.WebSockets.ClientWebSocket is unreliable in the Unity Editor.
+    /// WebSocket client that connects to multiple MCP server instances simultaneously.
+    /// Each Claude session spawns its own MCP server on a different port (6605-6609).
+    /// This client connects to ALL available servers so multiple sessions can control Unity.
     /// </summary>
     public class WebSocketServer
     {
@@ -21,20 +24,19 @@ namespace UnityMcpPro
         private const float RECONNECT_INTERVAL = 3f;
         private const int BUFFER_SIZE = 65536;
 
-        private TcpClient _tcp;
-        private NetworkStream _stream;
-        private Thread _receiveThread;
         private readonly CommandRouter _router;
-        private readonly ConcurrentQueue<string> _incomingMessages = new ConcurrentQueue<string>();
+        private readonly ConcurrentDictionary<int, Connection> _connections = new ConcurrentDictionary<int, Connection>();
+        private readonly ConcurrentQueue<PendingAction> _mainThreadActions = new ConcurrentQueue<PendingAction>();
         private double _lastReconnectAttempt;
         private volatile bool _running;
-        private volatile bool _connected;
         private volatile bool _connecting;
-        private int _port = BASE_PORT;
-        private readonly object _sendLock = new object();
 
-        public bool IsConnected => _connected;
-        public int Port => _port;
+        public bool IsConnected => _connections.Values.Any(c => c.Connected);
+        public int ConnectionCount => _connections.Values.Count(c => c.Connected);
+        public IEnumerable<int> ConnectedPorts => _connections.Where(kv => kv.Value.Connected).Select(kv => kv.Key);
+
+        // Legacy compat — returns first connected port or 0
+        public int Port => _connections.Where(kv => kv.Value.Connected).Select(kv => kv.Key).FirstOrDefault();
 
         public WebSocketServer(CommandRouter router)
         {
@@ -55,19 +57,19 @@ namespace UnityMcpPro
             _running = false;
             _connecting = false;
             EditorApplication.update -= Update;
-            Disconnect();
+            DisconnectAll();
         }
 
         private void Update()
         {
-            // Process incoming messages on main thread
-            while (_incomingMessages.TryDequeue(out string message))
+            // Process main-thread actions (incoming messages + log calls)
+            while (_mainThreadActions.TryDequeue(out var action))
             {
-                ProcessMessage(message);
+                action.Execute();
             }
 
-            // Auto-reconnect
-            if (_running && !_connected && !_connecting)
+            // Auto-reconnect: periodically scan for new MCP servers
+            if (_running && !_connecting)
             {
                 double now = EditorApplication.timeSinceStartup;
                 if (now - _lastReconnectAttempt >= RECONNECT_INTERVAL)
@@ -90,6 +92,11 @@ namespace UnityMcpPro
                     for (int port = BASE_PORT; port <= MAX_PORT; port++)
                     {
                         if (!_running) break;
+
+                        // Skip ports we're already connected to
+                        if (_connections.TryGetValue(port, out var existing) && existing.Connected)
+                            continue;
+
                         try
                         {
                             var tcp = new TcpClient();
@@ -97,23 +104,34 @@ namespace UnityMcpPro
 
                             if (PerformWebSocketHandshake(tcp, port))
                             {
-                                Disconnect(); // Clean up old connection
-                                _tcp = tcp;
-                                _stream = tcp.GetStream();
-                                _port = port;
-                                _connected = true;
+                                // Remove old dead connection for this port if any
+                                if (_connections.TryRemove(port, out var old))
+                                {
+                                    old.Connected = false;
+                                    try { old.Stream?.Close(); } catch { }
+                                    try { old.Tcp?.Close(); } catch { }
+                                }
 
-                                // Start receive thread
-                                _receiveThread = new Thread(ReceiveLoop)
+                                var conn = new Connection
+                                {
+                                    Port = port,
+                                    Tcp = tcp,
+                                    Stream = tcp.GetStream(),
+                                    Connected = true
+                                };
+
+                                conn.ReceiveThread = new Thread(() => ReceiveLoop(conn))
                                 {
                                     IsBackground = true,
-                                    Name = "MCP-WebSocket-Receive"
+                                    Name = $"MCP-WS-Recv-{port}"
                                 };
-                                _receiveThread.Start();
+                                conn.ReceiveThread.Start();
 
-                                EditorApplication.delayCall += () =>
-                                    Debug.Log($"[MCP] Connected to MCP server on port {port}");
-                                return;
+                                _connections[port] = conn;
+
+                                int p = port; // capture for closure
+                                _mainThreadActions.Enqueue(new PendingAction(() =>
+                                    Debug.Log($"[MCP] Connected to MCP server on port {p} (active connections: {ConnectionCount})")));
                             }
                             else
                             {
@@ -122,7 +140,7 @@ namespace UnityMcpPro
                         }
                         catch (Exception)
                         {
-                            // Try next port
+                            // Port not available, skip
                         }
                     }
                 }
@@ -203,27 +221,37 @@ namespace UnityMcpPro
             return true;
         }
 
-        private void Disconnect()
+        private void DisconnectAll()
         {
-            _connected = false;
-            try { _stream?.Close(); } catch { }
-            try { _tcp?.Close(); } catch { }
-            _stream = null;
-            _tcp = null;
+            foreach (var kv in _connections)
+            {
+                var conn = kv.Value;
+                conn.Connected = false;
+                try { conn.Stream?.Close(); } catch { }
+                try { conn.Tcp?.Close(); } catch { }
+            }
+            _connections.Clear();
         }
 
-        private void ReceiveLoop()
+        private void Disconnect(Connection conn)
         {
-            var buffer = new byte[BUFFER_SIZE];
+            conn.Connected = false;
+            try { conn.Stream?.Close(); } catch { }
+            try { conn.Tcp?.Close(); } catch { }
+            _connections.TryRemove(conn.Port, out _);
+        }
+
+        private void ReceiveLoop(Connection conn)
+        {
             var messageBuffer = new MemoryStream();
 
             try
             {
-                while (_running && _connected && _tcp?.Connected == true)
+                while (_running && conn.Connected && conn.Tcp?.Connected == true)
                 {
                     // Read WebSocket frame header
-                    int b0 = ReadByte();
-                    int b1 = ReadByte();
+                    int b0 = ReadByte(conn);
+                    int b1 = ReadByte(conn);
                     if (b0 < 0 || b1 < 0) break;
 
                     bool fin = (b0 & 0x80) != 0;
@@ -233,14 +261,14 @@ namespace UnityMcpPro
 
                     if (payloadLen == 126)
                     {
-                        int h = ReadByte();
-                        int l = ReadByte();
+                        int h = ReadByte(conn);
+                        int l = ReadByte(conn);
                         if (h < 0 || l < 0) break;
                         payloadLen = (h << 8) | l;
                     }
                     else if (payloadLen == 127)
                     {
-                        var lenBytes = ReadBytes(8);
+                        var lenBytes = ReadBytes(conn, 8);
                         if (lenBytes == null) break;
                         payloadLen = 0;
                         for (int i = 0; i < 8; i++)
@@ -250,7 +278,7 @@ namespace UnityMcpPro
                     byte[] maskKey = null;
                     if (masked)
                     {
-                        maskKey = ReadBytes(4);
+                        maskKey = ReadBytes(conn, 4);
                         if (maskKey == null) break;
                     }
 
@@ -258,7 +286,7 @@ namespace UnityMcpPro
                     byte[] payload = null;
                     if (payloadLen > 0)
                     {
-                        payload = ReadBytes((int)payloadLen);
+                        payload = ReadBytes(conn, (int)payloadLen);
                         if (payload == null) break;
 
                         if (masked && maskKey != null)
@@ -279,17 +307,17 @@ namespace UnityMcpPro
                             {
                                 string text = Encoding.UTF8.GetString(messageBuffer.ToArray());
                                 messageBuffer.SetLength(0);
-                                _incomingMessages.Enqueue(text);
+                                _mainThreadActions.Enqueue(new PendingAction(() => ProcessMessage(conn, text)));
                             }
                             break;
 
                         case 0x8: // Close
-                            SendCloseFrame();
-                            _connected = false;
+                            SendCloseFrame(conn);
+                            conn.Connected = false;
                             return;
 
                         case 0x9: // Ping
-                            SendPongFrame(payload);
+                            SendPongFrame(conn, payload);
                             break;
 
                         case 0xA: // Pong
@@ -301,27 +329,32 @@ namespace UnityMcpPro
             {
                 if (_running)
                 {
-                    EditorApplication.delayCall += () =>
-                        Debug.LogWarning($"[MCP] WebSocket receive error: {ex.Message}");
+                    string msg = ex.Message;
+                    int port = conn.Port;
+                    _mainThreadActions.Enqueue(new PendingAction(() =>
+                        Debug.LogWarning($"[MCP] WebSocket error on port {port}: {msg}")));
                 }
             }
             finally
             {
-                bool wasConnected = _connected;
-                _connected = false;
+                bool wasConnected = conn.Connected;
+                conn.Connected = false;
+                _connections.TryRemove(conn.Port, out _);
                 if (wasConnected && _running)
                 {
-                    EditorApplication.delayCall += () =>
-                        Debug.Log("[MCP] Disconnected from MCP server");
+                    int port = conn.Port;
+                    int remaining = ConnectionCount;
+                    _mainThreadActions.Enqueue(new PendingAction(() =>
+                        Debug.Log($"[MCP] Disconnected from port {port} (active connections: {remaining})")));
                 }
             }
         }
 
-        private int ReadByte()
+        private int ReadByte(Connection conn)
         {
             try
             {
-                return _stream.ReadByte();
+                return conn.Stream.ReadByte();
             }
             catch
             {
@@ -329,24 +362,24 @@ namespace UnityMcpPro
             }
         }
 
-        private byte[] ReadBytes(int count)
+        private byte[] ReadBytes(Connection conn, int count)
         {
             var buffer = new byte[count];
             int offset = 0;
             while (offset < count)
             {
-                int read = _stream.Read(buffer, offset, count - offset);
+                int read = conn.Stream.Read(buffer, offset, count - offset);
                 if (read <= 0) return null;
                 offset += read;
             }
             return buffer;
         }
 
-        private void SendWebSocketFrame(byte opcode, byte[] payload)
+        private void SendWebSocketFrame(Connection conn, byte opcode, byte[] payload)
         {
-            if (!_connected || _stream == null) return;
+            if (!conn.Connected || conn.Stream == null) return;
 
-            lock (_sendLock)
+            lock (conn.SendLock)
             {
                 try
                 {
@@ -380,39 +413,39 @@ namespace UnityMcpPro
                     // Masked payload
                     if (payload != null && payload.Length > 0)
                     {
-                        var masked = new byte[payload.Length];
+                        var maskedPayload = new byte[payload.Length];
                         for (int i = 0; i < payload.Length; i++)
-                            masked[i] = (byte)(payload[i] ^ maskKey[i % 4]);
-                        frame.Write(masked, 0, masked.Length);
+                            maskedPayload[i] = (byte)(payload[i] ^ maskKey[i % 4]);
+                        frame.Write(maskedPayload, 0, maskedPayload.Length);
                     }
 
                     var frameBytes = frame.ToArray();
-                    _stream.Write(frameBytes, 0, frameBytes.Length);
-                    _stream.Flush();
+                    conn.Stream.Write(frameBytes, 0, frameBytes.Length);
+                    conn.Stream.Flush();
                 }
                 catch (Exception)
                 {
-                    _connected = false;
+                    conn.Connected = false;
                 }
             }
         }
 
-        private void SendCloseFrame()
+        private void SendCloseFrame(Connection conn)
         {
-            SendWebSocketFrame(0x8, new byte[] { 0x03, 0xE8 }); // 1000 normal closure
+            SendWebSocketFrame(conn, 0x8, new byte[] { 0x03, 0xE8 }); // 1000 normal closure
         }
 
-        private void SendPongFrame(byte[] payload)
+        private void SendPongFrame(Connection conn, byte[] payload)
         {
-            SendWebSocketFrame(0xA, payload);
+            SendWebSocketFrame(conn, 0xA, payload);
         }
 
-        private void SendTextFrame(string text)
+        private void SendTextFrame(Connection conn, string text)
         {
-            SendWebSocketFrame(0x1, Encoding.UTF8.GetBytes(text));
+            SendWebSocketFrame(conn, 0x1, Encoding.UTF8.GetBytes(text));
         }
 
-        private void ProcessMessage(string message)
+        private void ProcessMessage(Connection conn, string message)
         {
             try
             {
@@ -420,19 +453,38 @@ namespace UnityMcpPro
 
                 if (request.method == "ping")
                 {
-                    SendTextFrame("{\"jsonrpc\":\"2.0\",\"method\":\"pong\",\"params\":{}}");
+                    SendTextFrame(conn, "{\"jsonrpc\":\"2.0\",\"method\":\"pong\",\"params\":{}}");
                     return;
                 }
 
                 _router.Dispatch(request, (response) =>
                 {
-                    SendTextFrame(response);
+                    SendTextFrame(conn, response);
                 });
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[MCP] Error processing message: {ex.Message}");
+                Debug.LogError($"[MCP] Error processing message on port {conn.Port}: {ex.Message}");
             }
+        }
+
+        /// <summary>Per-connection state</summary>
+        private class Connection
+        {
+            public int Port;
+            public TcpClient Tcp;
+            public NetworkStream Stream;
+            public Thread ReceiveThread;
+            public volatile bool Connected;
+            public readonly object SendLock = new object();
+        }
+
+        /// <summary>Action to execute on the main thread</summary>
+        private class PendingAction
+        {
+            private readonly Action _action;
+            public PendingAction(Action action) => _action = action;
+            public void Execute() => _action?.Invoke();
         }
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace UnityMcpPro
 {
@@ -19,6 +20,7 @@ namespace UnityMcpPro
 
         private static object CreateMaterial(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("create_material");
             string path = GetStringParam(p, "path");
             string shaderName = GetStringParam(p, "shader", "Standard");
 
@@ -71,14 +73,14 @@ namespace UnityMcpPro
                 throw new ArgumentException($"Material not found at: {path}");
 
             var shader = mat.shader;
-            int count = ShaderUtil.GetPropertyCount(shader);
+            int count = shader.GetPropertyCount();
             var properties = new List<object>();
 
             for (int i = 0; i < count; i++)
             {
-                var propName = ShaderUtil.GetPropertyName(shader, i);
-                var propType = ShaderUtil.GetPropertyType(shader, i);
-                var propDesc = ShaderUtil.GetPropertyDescription(shader, i);
+                var propName = shader.GetPropertyName(i);
+                var propType = shader.GetPropertyType(i);
+                var propDesc = shader.GetPropertyDescription(i);
 
                 var propData = new Dictionary<string, object>
                 {
@@ -89,19 +91,19 @@ namespace UnityMcpPro
 
                 switch (propType)
                 {
-                    case ShaderUtil.ShaderPropertyType.Color:
+                    case ShaderPropertyType.Color:
                         var c = mat.GetColor(propName);
                         propData["value"] = $"Color({c.r},{c.g},{c.b},{c.a})";
                         break;
-                    case ShaderUtil.ShaderPropertyType.Float:
-                    case ShaderUtil.ShaderPropertyType.Range:
+                    case ShaderPropertyType.Float:
+                    case ShaderPropertyType.Range:
                         propData["value"] = mat.GetFloat(propName);
                         break;
-                    case ShaderUtil.ShaderPropertyType.Vector:
+                    case ShaderPropertyType.Vector:
                         var v = mat.GetVector(propName);
                         propData["value"] = $"Vector4({v.x},{v.y},{v.z},{v.w})";
                         break;
-                    case ShaderUtil.ShaderPropertyType.TexEnv:
+                    case ShaderPropertyType.Texture:
                         var tex = mat.GetTexture(propName);
                         propData["value"] = tex != null ? AssetDatabase.GetAssetPath(tex) : null;
                         break;
@@ -120,6 +122,7 @@ namespace UnityMcpPro
 
         private static object SetMaterialProperty(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("set_material_property");
             string path = GetStringParam(p, "path");
             string property = GetStringParam(p, "property");
             string type = GetStringParam(p, "type");
@@ -208,6 +211,7 @@ namespace UnityMcpPro
 
         private static object CreateShader(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("create_shader");
             string path = GetStringParam(p, "path");
             string type = GetStringParam(p, "type", "Unlit");
             string template = GetStringParam(p, "template");

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
+using UnityEditor.Build;
 using UnityEngine;
 
 namespace UnityMcpPro
@@ -43,6 +44,7 @@ namespace UnityMcpPro
 
         private static object SetBuildScenes(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("set_build_scenes");
             var scenePaths = GetStringListParam(p, "scenes");
             bool append = GetBoolParam(p, "append");
 
@@ -71,6 +73,7 @@ namespace UnityMcpPro
 
         private static object BuildPlayer(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("build_player");
             string outputPath = GetStringParam(p, "output_path");
             string targetStr = GetStringParam(p, "target");
             bool development = GetBoolParam(p, "development");
@@ -134,7 +137,7 @@ namespace UnityMcpPro
                     group = parsed;
             }
 
-            string defines = PlayerSettings.GetScriptingDefineSymbolsForGroup(group);
+            string defines = PlayerSettings.GetScriptingDefineSymbols(NamedBuildTarget.FromBuildTargetGroup(group));
 
             return new Dictionary<string, object>
             {
@@ -145,6 +148,7 @@ namespace UnityMcpPro
 
         private static object SetScriptingDefines(Dictionary<string, object> p)
         {
+            ThrowIfPlaying("set_scripting_defines");
             var defines = GetStringListParam(p, "defines");
             string groupStr = GetStringParam(p, "target_group");
             bool append = GetBoolParam(p, "append");
@@ -162,7 +166,7 @@ namespace UnityMcpPro
             string result;
             if (append)
             {
-                string existing = PlayerSettings.GetScriptingDefineSymbolsForGroup(group);
+                string existing = PlayerSettings.GetScriptingDefineSymbols(NamedBuildTarget.FromBuildTargetGroup(group));
                 var allDefines = existing.Split(';')
                     .Where(s => !string.IsNullOrEmpty(s))
                     .Concat(defines)
@@ -175,7 +179,7 @@ namespace UnityMcpPro
                 result = string.Join(";", defines);
             }
 
-            PlayerSettings.SetScriptingDefineSymbolsForGroup(group, result);
+            PlayerSettings.SetScriptingDefineSymbols(NamedBuildTarget.FromBuildTargetGroup(group), result);
 
             return new Dictionary<string, object>
             {
