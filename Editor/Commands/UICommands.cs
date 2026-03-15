@@ -1,3 +1,4 @@
+#if HAS_UGUI
 using System;
 using System.Collections.Generic;
 using UnityEditor;
@@ -350,3 +351,4 @@ namespace UnityMcpPro
         }
     }
 }
+#endif

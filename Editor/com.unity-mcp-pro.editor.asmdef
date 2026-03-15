@@ -14,6 +14,22 @@
   "precompiledReferences": [],
   "autoReferenced": true,
   "defineConstraints": [],
-  "versionDefines": [],
+  "versionDefines": [
+    {
+      "name": "com.unity.ugui",
+      "expression": "",
+      "define": "HAS_UGUI"
+    },
+    {
+      "name": "com.unity.ai.navigation",
+      "expression": "",
+      "define": "HAS_AI_NAVIGATION"
+    },
+    {
+      "name": "com.unity.inputsystem",
+      "expression": "",
+      "define": "HAS_INPUT_SYSTEM"
+    }
+  ],
   "noEngineReferences": false
 }

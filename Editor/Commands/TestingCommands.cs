@@ -6,7 +6,9 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+#if HAS_UGUI
 using UnityEngine.UI;
+#endif
 
 namespace UnityMcpPro
 {
@@ -315,6 +317,7 @@ namespace UnityMcpPro
 
             var foundTexts = new List<object>();
 
+#if HAS_UGUI
             // Search legacy UI Text
             foreach (var text in UnityEngine.Object.FindObjectsByType<Text>(FindObjectsSortMode.None))
             {
@@ -332,6 +335,7 @@ namespace UnityMcpPro
                     });
                 }
             }
+#endif
 
             // Search TMP text via reflection
             var tmpTextType = AppDomain.CurrentDomain.GetAssemblies()

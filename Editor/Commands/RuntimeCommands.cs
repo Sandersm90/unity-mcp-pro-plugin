@@ -4,9 +4,11 @@ using System.Linq;
 using System.Reflection;
 using UnityEditor;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
+#if HAS_UGUI
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
+#endif
 
 namespace UnityMcpPro
 {
@@ -17,8 +19,10 @@ namespace UnityMcpPro
             router.Register("monitor_properties", MonitorProperties);
             router.Register("execute_editor_script", ExecuteEditorScript);
             router.Register("execute_game_script", ExecuteGameScript);
+#if HAS_UGUI
             router.Register("find_ui_elements", FindUIElements);
             router.Register("click_button_by_text", ClickButtonByText);
+#endif
             router.Register("wait_for_node", WaitForNode);
             router.Register("find_nearby_objects", FindNearbyObjects);
         }
@@ -188,6 +192,7 @@ public static class McpDynamicScript
             return results.CompiledAssembly;
         }
 
+#if HAS_UGUI
         private static object FindUIElements(Dictionary<string, object> p)
         {
             string canvasName = GetStringParam(p, "canvas_name");
@@ -334,6 +339,7 @@ public static class McpDynamicScript
 
             throw new ArgumentException($"No button found with text '{searchText}'");
         }
+#endif
 
         private static object WaitForNode(Dictionary<string, object> p)
         {

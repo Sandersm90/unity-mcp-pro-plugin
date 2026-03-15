@@ -62,7 +62,9 @@ namespace UnityMcpPro
             MaterialCommands.Register(_router);
             PhysicsCommands.Register(_router);
             LightingCommands.Register(_router);
+#if HAS_UGUI
             UICommands.Register(_router);
+#endif
 
             // Tier 2 (22 tools)
             AnimationCommands.Register(_router);
