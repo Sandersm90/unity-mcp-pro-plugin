@@ -101,7 +101,7 @@ Tests cover: `BaseCommand` parameter helpers, `CommandRouter` dispatch, `TypePar
 - [Website](https://unity-mcp.abyo.net/)
 - [Unity Asset Store](https://u3d.as/3TYe) — AI Bridge for Unity (MCP Pro)
 - [MCP Server (itch.io)](https://y1uda.itch.io/unity-mcp-pro)
-- [Discord](https://discord.gg/9ccwueac)
+- [Discord](https://discord.gg/TMH2648mS2)
 
 ## License
 
