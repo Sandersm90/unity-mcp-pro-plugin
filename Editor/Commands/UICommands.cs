@@ -60,7 +60,17 @@ namespace UnityMcpPro
             {
                 var esGo = new GameObject("EventSystem");
                 esGo.AddComponent<EventSystem>();
+#if HAS_INPUT_SYSTEM
+                // Prefer new Input System when available
+                var inputModuleType = System.Type.GetType(
+                    "UnityEngine.InputSystem.UI.InputSystemUIInputModule, Unity.InputSystem");
+                if (inputModuleType != null)
+                    esGo.AddComponent(inputModuleType);
+                else
+                    esGo.AddComponent<StandaloneInputModule>();
+#else
                 esGo.AddComponent<StandaloneInputModule>();
+#endif
                 Undo.RegisterCreatedObjectUndo(esGo, "MCP: Create EventSystem");
             }
 

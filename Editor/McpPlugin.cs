@@ -93,6 +93,92 @@ namespace UnityMcpPro
 
             // Testing & QA (6 tools)
             TestingCommands.Register(_router);
+
+            // 2D Tools (6 tools)
+            TwoDCommands.Register(_router);
+
+            // Controller Tools (4 tools)
+            ControllerCommands.Register(_router);
+
+            // Animation Extended (5 tools)
+            AnimationExtendedCommands.Register(_router);
+
+            // Environment (6 tools)
+            EnvironmentCommands.Register(_router);
+
+            // Timeline (5 tools)
+#if HAS_TIMELINE
+            TimelineCommands.Register(_router);
+#endif
+
+            // Optimization (7 tools)
+            OptimizationCommands.Register(_router);
+
+            // Camera / Cinemachine (6 tools)
+            CameraCommands.Register(_router);
+
+            // Post-Processing (5 tools)
+            PostProcessCommands.Register(_router);
+
+            // AI Tools (4 tools)
+            AICommands.Register(_router);
+
+            // Game System Tools (5 tools)
+            GameSystemCommands.Register(_router);
+
+            // Shader Graph (5 tools)
+            ShaderGraphCommands.Register(_router);
+
+            // Visual Scripting (5 tools)
+            VisualScriptCommands.Register(_router);
+
+            // Profiler (4 tools)
+            ProfilerCommands.Register(_router);
+
+            // Asset Import (5 tools)
+            ImportCommands.Register(_router);
+
+            // Spline (5 tools)
+            SplineCommands.Register(_router);
+
+            // Multi-Scene (4 tools)
+            MultiSceneCommands.Register(_router);
+
+            // Scene View Camera (4 tools)
+            SceneViewCommands.Register(_router);
+
+            // Automated Playthrough (4 tools)
+            PlaythroughCommands.Register(_router);
+
+            // Benchmark (4 tools)
+            BenchmarkCommands.Register(_router);
+
+            // Live Property Watch (3 tools)
+            WatchCommands.Register(_router);
+
+            // Addressables (5 tools)
+            AddressableCommands.Register(_router);
+
+            // Localization (4 tools)
+            LocalizationCommands.Register(_router);
+
+            // Custom Editor Generation (4 tools)
+            CustomEditorCommands.Register(_router);
+
+            // Undo History (3 tools)
+            UndoCommands.Register(_router);
+
+            // Animation Rigging (4 tools)
+            RiggingCommands.Register(_router);
+
+            // ECS/DOTS (4 tools)
+            ECSCommands.Register(_router);
+
+            // Netcode (4 tools)
+            NetcodeCommands.Register(_router);
+
+            // XR/VR (4 tools)
+            XRCommands.Register(_router);
         }
 
         private static void OnBeforeAssemblyReload()

@@ -33,7 +33,7 @@ namespace UnityMcpPro
             {
                 case "directional": lightType = LightType.Directional; break;
                 case "spot": lightType = LightType.Spot; break;
-                case "area": lightType = LightType.Area; break;
+                case "area": lightType = LightType.Rectangle; break;
                 case "point":
                 default: lightType = LightType.Point; break;
             }

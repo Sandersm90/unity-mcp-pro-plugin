@@ -9,7 +9,6 @@ namespace UnityMcpPro
     public class MCPServerSetup : EditorWindow
     {
         private string _nodeVersion;
-        private bool _nodeChecked;
         private bool _nodeAvailable;
         private bool _npmInstalled;
         private string _serverPath;
@@ -70,7 +69,6 @@ namespace UnityMcpPro
 
         private void CheckNodeInstallation()
         {
-            _nodeChecked = true;
             try
             {
                 var psi = new ProcessStartInfo
