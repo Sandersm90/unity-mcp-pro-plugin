@@ -396,7 +396,13 @@ namespace UnityMcpPro
             collider.isTrigger = isTrigger;
 
             if (usedByComposite)
+            {
+#if UNITY_6000_0_OR_NEWER
                 collider.compositeOperation = Collider2D.CompositeOperation.Merge;
+#else
+                collider.usedByComposite = true;
+#endif
+            }
 
             return new Dictionary<string, object>
             {
@@ -404,7 +410,11 @@ namespace UnityMcpPro
                 { "gameObject", go.name },
                 { "colliderType", collider.GetType().Name },
                 { "isTrigger", isTrigger },
+#if UNITY_6000_0_OR_NEWER
                 { "usedByComposite", collider.compositeOperation != Collider2D.CompositeOperation.None }
+#else
+                { "usedByComposite", collider.usedByComposite }
+#endif
             };
         }
 
@@ -447,8 +457,13 @@ namespace UnityMcpPro
 
             rb.gravityScale = gravityScale;
             rb.mass = mass;
+#if UNITY_6000_0_OR_NEWER
             rb.linearDamping = linearDrag;
             rb.angularDamping = angularDrag;
+#else
+            rb.drag = linearDrag;
+            rb.angularDrag = angularDrag;
+#endif
 
             if (freezeRotation)
                 rb.constraints = RigidbodyConstraints2D.FreezeRotation;

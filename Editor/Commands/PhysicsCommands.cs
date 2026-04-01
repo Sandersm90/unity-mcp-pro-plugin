@@ -86,8 +86,13 @@ namespace UnityMcpPro
             if (p.ContainsKey("mass")) rb.mass = GetFloatParam(p, "mass", 1f);
             if (p.ContainsKey("use_gravity")) rb.useGravity = GetBoolParam(p, "use_gravity", true);
             if (p.ContainsKey("is_kinematic")) rb.isKinematic = GetBoolParam(p, "is_kinematic");
+#if UNITY_6000_0_OR_NEWER
             if (p.ContainsKey("drag")) rb.linearDamping = GetFloatParam(p, "drag");
             if (p.ContainsKey("angular_drag")) rb.angularDamping = GetFloatParam(p, "angular_drag", 0.05f);
+#else
+            if (p.ContainsKey("drag")) rb.drag = GetFloatParam(p, "drag");
+            if (p.ContainsKey("angular_drag")) rb.angularDrag = GetFloatParam(p, "angular_drag", 0.05f);
+#endif
 
             string constraintsStr = GetStringParam(p, "constraints");
             if (!string.IsNullOrEmpty(constraintsStr))
