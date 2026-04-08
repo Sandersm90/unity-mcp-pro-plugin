@@ -556,13 +556,13 @@ namespace UnityMcpPro
 #endif
 
 #if HAS_INPUT_SYSTEM && !UNITY_EDITOR_WIN
-        private static byte GetMouseButtonMaskInputSystem(string button)
+        private static ushort GetMouseButtonMaskInputSystem(string button)
         {
             switch (button.ToLower())
             {
-                case "left":   return (byte)MouseButton.Left;
-                case "right":  return (byte)MouseButton.Right;
-                case "middle": return (byte)MouseButton.Middle;
+                case "left":   return (ushort)(1 << (int)MouseButton.Left);
+                case "right":  return (ushort)(1 << (int)MouseButton.Right);
+                case "middle": return (ushort)(1 << (int)MouseButton.Middle);
                 default: throw new ArgumentException($"Unknown mouse button '{button}'");
             }
         }
