@@ -8,6 +8,9 @@ namespace UnityMcpPro
 {
     public class ScreenshotCommands : BaseCommand
     {
+        // Only touched from the main thread: WebSocketServer queues inbound
+        // commands onto EditorApplication.update, the same loop the capture
+        // callback runs on. No locking needed as long as that invariant holds.
         private static readonly Dictionary<string, CaptureSession> _captureSessions
             = new Dictionary<string, CaptureSession>();
 
@@ -24,6 +27,7 @@ namespace UnityMcpPro
             public bool complete;
             public string source;
             public double createdAt;
+            public string error;
         }
 
         public static void Register(CommandRouter router)
@@ -173,7 +177,12 @@ namespace UnityMcpPro
                 var gameViewType = assembly.GetType("UnityEditor.GameView");
                 if (gameViewType == null) return null;
 
-                var gameView = EditorWindow.GetWindow(gameViewType, false, null, false);
+                // Probe for an existing Game View before calling GetWindow,
+                // which would otherwise create one and surprise the user.
+                EditorWindow gameView = null;
+                var existing = Resources.FindObjectsOfTypeAll(gameViewType);
+                if (existing != null && existing.Length > 0)
+                    gameView = existing[0] as EditorWindow;
                 if (gameView == null) return null;
 
                 // PlayModeView (base of GameView) holds m_TargetTexture —
@@ -358,50 +367,62 @@ namespace UnityMcpPro
                 if (now < session.nextCapture)
                     return;
 
-                Texture2D tex = CaptureGameViewTexture();
-                if (tex != null)
+                // If the capture body throws (e.g. no camera for the fallback
+                // path) we must mark the session complete and unsubscribe,
+                // otherwise the exception keeps firing every editor tick.
+                try
                 {
-                    session.source = "game_view";
-                }
-                else
-                {
-                    tex = RenderCameraToTexture(width, height);
-                    session.source = "camera_render";
-                }
+                    Texture2D tex = CaptureGameViewTexture();
+                    if (tex != null)
+                    {
+                        session.source = "game_view";
+                    }
+                    else
+                    {
+                        tex = RenderCameraToTexture(width, height);
+                        session.source = "camera_render";
+                    }
 
-                // Resize if needed
-                if (tex.width != width || tex.height != height)
-                {
-                    var resizeRt = new RenderTexture(width, height, 0);
-                    Graphics.Blit(tex, resizeRt);
-                    RenderTexture.active = resizeRt;
-                    var resizedTex = new Texture2D(width, height, TextureFormat.RGB24, false);
-                    resizedTex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
-                    resizedTex.Apply();
-                    RenderTexture.active = null;
+                    if (tex.width != width || tex.height != height)
+                    {
+                        var resizeRt = new RenderTexture(width, height, 0);
+                        Graphics.Blit(tex, resizeRt);
+                        RenderTexture.active = resizeRt;
+                        var resizedTex = new Texture2D(width, height, TextureFormat.RGB24, false);
+                        resizedTex.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+                        resizedTex.Apply();
+                        RenderTexture.active = null;
+                        UnityEngine.Object.DestroyImmediate(tex);
+                        resizeRt.Release();
+                        UnityEngine.Object.DestroyImmediate(resizeRt);
+                        tex = resizedTex;
+                    }
+
+                    byte[] imageData = EncodeTexture(tex, format, quality);
                     UnityEngine.Object.DestroyImmediate(tex);
-                    resizeRt.Release();
-                    UnityEngine.Object.DestroyImmediate(resizeRt);
-                    tex = resizedTex;
+
+                    session.frames.Add(new Dictionary<string, object>
+                    {
+                        { "frame", session.frames.Count },
+                        { "timestamp", now },
+                        { "image", Convert.ToBase64String(imageData) },
+                        { "mimeType", GetMimeType(format) }
+                    });
+
+                    session.nextCapture = now + interval;
+
+                    if (session.frames.Count >= session.targetCount)
+                    {
+                        session.complete = true;
+                        EditorApplication.update -= callback;
+                    }
                 }
-
-                byte[] imageData = EncodeTexture(tex, format, quality);
-                UnityEngine.Object.DestroyImmediate(tex);
-
-                session.frames.Add(new Dictionary<string, object>
+                catch (Exception e)
                 {
-                    { "frame", session.frames.Count },
-                    { "timestamp", now },
-                    { "image", Convert.ToBase64String(imageData) },
-                    { "mimeType", GetMimeType(format) }
-                });
-
-                session.nextCapture = now + interval;
-
-                if (session.frames.Count >= session.targetCount)
-                {
+                    session.error = e.Message;
                     session.complete = true;
                     EditorApplication.update -= callback;
+                    Debug.LogError($"[MCP] Frame capture failed: {e.Message}");
                 }
             };
 
@@ -432,32 +453,38 @@ namespace UnityMcpPro
             var result = new Dictionary<string, object>
             {
                 { "capture_id", captureId },
-                { "status", session.complete ? "complete" : "capturing" },
+                { "status", session.error != null ? "error" : (session.complete ? "complete" : "capturing") },
                 { "capturedCount", session.frames.Count },
                 { "targetCount", session.targetCount },
                 { "width", session.width },
                 { "height", session.height },
                 { "format", session.format },
-                { "source", session.source ?? "pending" }
+                { "source", session.source ?? "pending" },
+                // Always expose whatever frames have been captured so far —
+                // callers polling a long-running session can stream results
+                // instead of waiting for completion.
+                { "frames", session.frames }
             };
 
+            if (session.error != null)
+                result["error"] = session.error;
+
             if (session.complete)
-            {
-                // Return frames and clean up the session
-                result["frames"] = session.frames;
                 _captureSessions.Remove(captureId);
-            }
 
             return result;
         }
 
         private static void PurgeOldSessions(double maxAgeSeconds)
         {
+            // Only evict sessions that have already finished — in-flight
+            // captures can legitimately outlive the TTL on long runs
+            // (e.g. frame_count=200, interval=1s).
             var stale = new List<string>();
             double now = EditorApplication.timeSinceStartup;
             foreach (var kv in _captureSessions)
             {
-                if (now - kv.Value.createdAt > maxAgeSeconds)
+                if (kv.Value.complete && now - kv.Value.createdAt > maxAgeSeconds)
                     stale.Add(kv.Key);
             }
             foreach (var id in stale)
