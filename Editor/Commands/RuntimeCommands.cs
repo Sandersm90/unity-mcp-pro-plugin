@@ -190,26 +190,47 @@ public static class McpDynamicScript
             return refs;
         }
 
+        // Candidate sub-paths under applicationContentsPath where Unity may place Roslyn.
+        // Linux/Windows and macOS 6000.0 use the root directly; macOS 6000.3+ moved the
+        // binaries into Resources/Scripting/.
+        private static readonly string[] RoslynRoots =
+        {
+            "",                    // Linux / Windows / macOS Unity 6000.0
+            "Resources/Scripting", // macOS Unity 6000.3+
+        };
+
+        private static (string csc, string dotnet)? FindRoslyn(string contentsPath)
+        {
+            foreach (var root in RoslynRoots)
+            {
+                var csc    = Path.Combine(contentsPath, root, "DotNetSdkRoslyn", "csc.dll");
+                var dotnet = Path.Combine(contentsPath, root, "NetCoreRuntime", "dotnet");
+                if (File.Exists(csc) && File.Exists(dotnet)) return (csc, dotnet);
+            }
+            return null;
+        }
+
         private static Assembly CompileCode(string code)
         {
             // Prefer Roslyn (csc.dll) via Unity's bundled .NET runtime for full C# support.
             // Fall back to CodeDom when the subprocess approach is unavailable.
-            var contentsPath = EditorApplication.applicationContentsPath;
-            var cscDll  = Path.Combine(contentsPath, "DotNetSdkRoslyn", "csc.dll");
-            var dotnet  = Path.Combine(contentsPath, "NetCoreRuntime", "dotnet");
+            var roslyn = FindRoslyn(EditorApplication.applicationContentsPath);
+            if (roslyn.HasValue)
+                return CompileWithRoslyn(code, roslyn.Value.csc, roslyn.Value.dotnet);
 
-            if (File.Exists(cscDll) && File.Exists(dotnet))
-                return CompileWithRoslyn(code, cscDll, dotnet);
-
+            Debug.Log("[UnityMcpPro] Roslyn compiler not found under applicationContentsPath; " +
+                      "falling back to CodeDom. C# features beyond .NET 4.x may not compile correctly.");
             return CompileWithCodeDom(code);
         }
 
         private static Assembly CompileWithRoslyn(string code, string cscDll, string dotnet)
         {
-            var tempDir    = Path.Combine(Path.GetTempPath(), "UnityMcpPro");
-            Directory.CreateDirectory(tempDir);
-            var sourceFile = Path.Combine(tempDir, "McpDynamic.cs");
-            var outputDll  = Path.Combine(tempDir, "McpDynamic.dll");
+            // Use a per-call GUID subdirectory to avoid collisions between concurrent
+            // execute_editor_script calls or a second call before a previous delete runs.
+            var callDir    = Path.Combine(Path.GetTempPath(), "UnityMcpPro", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(callDir);
+            var sourceFile = Path.Combine(callDir, "McpDynamic.cs");
+            var outputDll  = Path.Combine(callDir, "McpDynamic.dll");
 
             File.WriteAllText(sourceFile, code);
 
@@ -234,36 +255,46 @@ public static class McpDynamicScript
             int exitCode;
             using (var proc = Process.Start(psi))
             {
+                // Read stderr on a background task to prevent deadlock: if stderr fills its
+                // pipe buffer before we drain stdout, ReadToEnd() on stdout blocks forever.
+                var stderrTask = System.Threading.Tasks.Task.Run(() => proc.StandardError.ReadToEnd());
                 stdout   = proc.StandardOutput.ReadToEnd();
-                stderr   = proc.StandardError.ReadToEnd();
+                stderr   = stderrTask.Result;
                 proc.WaitForExit();
                 exitCode = proc.ExitCode;
             }
 
-            if (exitCode != 0)
+            byte[] bytes = null;
+            try
             {
-                // Parse csc error lines: "file(line,col): error CS####: message"
-                var errors = (stdout + "\n" + stderr)
-                    .Split('\n')
-                    .Where(l => l.Contains(": error ") || l.Contains(": Error "))
-                    .Select(l =>
-                    {
-                        // Trim the temp file prefix so only "Line N: message" is shown.
-                        var msgStart = l.IndexOf("): ", StringComparison.Ordinal);
-                        if (msgStart >= 0) l = l.Substring(msgStart + 2).Trim();
-                        return l;
-                    })
-                    .ToList();
+                if (exitCode != 0)
+                {
+                    // Parse csc error lines: "file(line,col): error CS####: message"
+                    var errors = (stdout + "\n" + stderr)
+                        .Split('\n')
+                        .Where(l => l.Contains(": error ") || l.Contains(": Error "))
+                        .Select(l =>
+                        {
+                            // Trim the temp file prefix so only ") : message" is shown.
+                            var msgStart = l.IndexOf("): ", StringComparison.Ordinal);
+                            if (msgStart >= 0) l = l.Substring(msgStart + 2).Trim();
+                            return l;
+                        })
+                        .ToList();
 
-                var message = errors.Count > 0
-                    ? "Compilation errors:\n" + string.Join("\n", errors)
-                    : $"Compilation failed (exit {exitCode}):\n{stdout}\n{stderr}".Trim();
+                    var message = errors.Count > 0
+                        ? "Compilation errors:\n" + string.Join("\n", errors)
+                        : $"Compilation failed (exit {exitCode}):\n{stdout}\n{stderr}".Trim();
 
-                throw new InvalidOperationException(message);
+                    throw new InvalidOperationException(message);
+                }
+
+                bytes = File.ReadAllBytes(outputDll);
             }
-
-            var bytes = File.ReadAllBytes(outputDll);
-            try { File.Delete(sourceFile); File.Delete(outputDll); } catch { }
+            finally
+            {
+                try { Directory.Delete(callDir, true); } catch { }
+            }
 
             return Assembly.Load(bytes);
         }
