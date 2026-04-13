@@ -199,12 +199,17 @@ public static class McpDynamicScript
             "Resources/Scripting", // macOS Unity 6000.3+
         };
 
+        // Unity ships dotnet.exe on Windows and an extensionless dotnet binary elsewhere.
+        // File.Exists is extension-strict, so probing the wrong name silently fails.
+        private static readonly string DotnetBinary =
+            Application.platform == RuntimePlatform.WindowsEditor ? "dotnet.exe" : "dotnet";
+
         private static (string csc, string dotnet)? FindRoslyn(string contentsPath)
         {
             foreach (var root in RoslynRoots)
             {
                 var csc    = Path.Combine(contentsPath, root, "DotNetSdkRoslyn", "csc.dll");
-                var dotnet = Path.Combine(contentsPath, root, "NetCoreRuntime", "dotnet");
+                var dotnet = Path.Combine(contentsPath, root, "NetCoreRuntime", DotnetBinary);
                 if (File.Exists(csc) && File.Exists(dotnet)) return (csc, dotnet);
             }
             return null;
@@ -218,8 +223,8 @@ public static class McpDynamicScript
             if (roslyn.HasValue)
                 return CompileWithRoslyn(code, roslyn.Value.csc, roslyn.Value.dotnet);
 
-            Debug.Log("[UnityMcpPro] Roslyn compiler not found under applicationContentsPath; " +
-                      "falling back to CodeDom. C# features beyond .NET 4.x may not compile correctly.");
+            UnityEngine.Debug.Log("[UnityMcpPro] Roslyn compiler not found under applicationContentsPath; " +
+                                  "falling back to CodeDom. C# features beyond .NET 4.x may not compile correctly.");
             return CompileWithCodeDom(code);
         }
 
