@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using UnityEditor;
@@ -14,6 +16,11 @@ namespace UnityMcpPro
 {
     public class RuntimeCommands : BaseCommand
     {
+        // Clear the reference cache after each domain reload so stale assembly
+        // paths from a previous reload cycle don't cause duplicate-reference errors.
+        [UnityEditor.InitializeOnLoadMethod]
+        private static void OnDomainReload() => _referenceCache = null;
+
         public static void Register(CommandRouter router)
         {
             router.Register("monitor_properties", MonitorProperties);
@@ -160,33 +167,169 @@ public static class McpDynamicScript
             return ExecuteEditorScript(p);
         }
 
-        private static Assembly CompileCode(string code)
-        {
-            // Use Microsoft.CSharp.CSharpCodeProvider for runtime compilation
-            var provider = new Microsoft.CSharp.CSharpCodeProvider();
-            var compilerParams = new System.CodeDom.Compiler.CompilerParameters();
+        // Deduplicated list of loaded assembly paths, rebuilt once per domain load.
+        private static List<string> _referenceCache;
 
-            // Add references
+        private static List<string> GetReferences()
+        {
+            if (_referenceCache != null) return _referenceCache;
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var refs = new List<string>();
             foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
             {
                 try
                 {
-                    if (!string.IsNullOrEmpty(asm.Location))
-                        compilerParams.ReferencedAssemblies.Add(asm.Location);
+                    if (asm.IsDynamic || string.IsNullOrEmpty(asm.Location)) continue;
+                    if (seen.Add(Path.GetFileName(asm.Location)))
+                        refs.Add(asm.Location);
                 }
                 catch { }
             }
+            _referenceCache = refs;
+            return refs;
+        }
 
-            compilerParams.GenerateInMemory = true;
-            compilerParams.GenerateExecutable = false;
+        // Candidate sub-paths under applicationContentsPath where Unity may place Roslyn.
+        // Linux/Windows and macOS 6000.0 use the root directly; macOS 6000.3+ moved the
+        // binaries into Resources/Scripting/.
+        private static readonly string[] RoslynRoots =
+        {
+            "",                    // Linux / Windows / macOS Unity 6000.0
+            "Resources/Scripting", // macOS Unity 6000.3+
+        };
+
+        // Unity ships dotnet.exe on Windows and an extensionless dotnet binary elsewhere.
+        // File.Exists is extension-strict, so probing the wrong name silently fails.
+        private static readonly string DotnetBinary =
+            Application.platform == RuntimePlatform.WindowsEditor ? "dotnet.exe" : "dotnet";
+
+        private static (string csc, string dotnet)? FindRoslyn(string contentsPath)
+        {
+            foreach (var root in RoslynRoots)
+            {
+                var csc    = Path.Combine(contentsPath, root, "DotNetSdkRoslyn", "csc.dll");
+                var dotnet = Path.Combine(contentsPath, root, "NetCoreRuntime", DotnetBinary);
+                if (File.Exists(csc) && File.Exists(dotnet)) return (csc, dotnet);
+            }
+            return null;
+        }
+
+        private static Assembly CompileCode(string code)
+        {
+            // Prefer Roslyn (csc.dll) via Unity's bundled .NET runtime for full C# support.
+            // Fall back to CodeDom when the subprocess approach is unavailable.
+            var roslyn = FindRoslyn(EditorApplication.applicationContentsPath);
+            if (roslyn.HasValue)
+                return CompileWithRoslyn(code, roslyn.Value.csc, roslyn.Value.dotnet);
+
+            UnityEngine.Debug.Log("[UnityMcpPro] Roslyn compiler not found under applicationContentsPath; " +
+                                  "falling back to CodeDom. C# features beyond .NET 4.x may not compile correctly.");
+            return CompileWithCodeDom(code);
+        }
+
+        private static Assembly CompileWithRoslyn(string code, string cscDll, string dotnet)
+        {
+            // Use a per-call GUID subdirectory to avoid collisions between concurrent
+            // execute_editor_script calls or a second call before a previous delete runs.
+            var callDir    = Path.Combine(Path.GetTempPath(), "UnityMcpPro", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(callDir);
+            var sourceFile = Path.Combine(callDir, "McpDynamic.cs");
+            var outputDll  = Path.Combine(callDir, "McpDynamic.dll");
+
+            File.WriteAllText(sourceFile, code);
+
+            // Build /reference: args, deduplicated by filename.
+            var refArgs = string.Join(" ",
+                GetReferences().Select(r => $"\"/reference:{r}\""));
+
+            var arguments = $"\"{cscDll}\" /target:library /langversion:latest /optimize- " +
+                            $"\"/out:{outputDll}\" {refArgs} \"{sourceFile}\"";
+
+            var psi = new ProcessStartInfo
+            {
+                FileName               = dotnet,
+                Arguments              = arguments,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+                UseShellExecute        = false,
+                CreateNoWindow         = true,
+            };
+
+            string stdout, stderr;
+            int exitCode;
+            using (var proc = Process.Start(psi))
+            {
+                // Read stderr on a background task to prevent deadlock: if stderr fills its
+                // pipe buffer before we drain stdout, ReadToEnd() on stdout blocks forever.
+                var stderrTask = System.Threading.Tasks.Task.Run(() => proc.StandardError.ReadToEnd());
+                stdout   = proc.StandardOutput.ReadToEnd();
+                stderr   = stderrTask.Result;
+                proc.WaitForExit();
+                exitCode = proc.ExitCode;
+            }
+
+            byte[] bytes = null;
+            try
+            {
+                if (exitCode != 0)
+                {
+                    // Parse csc error lines: "file(line,col): error CS####: message"
+                    var errors = (stdout + "\n" + stderr)
+                        .Split('\n')
+                        .Where(l => l.Contains(": error ") || l.Contains(": Error "))
+                        .Select(l =>
+                        {
+                            // Trim the temp file prefix so only ") : message" is shown.
+                            var msgStart = l.IndexOf("): ", StringComparison.Ordinal);
+                            if (msgStart >= 0) l = l.Substring(msgStart + 2).Trim();
+                            return l;
+                        })
+                        .ToList();
+
+                    var message = errors.Count > 0
+                        ? "Compilation errors:\n" + string.Join("\n", errors)
+                        : $"Compilation failed (exit {exitCode}):\n{stdout}\n{stderr}".Trim();
+
+                    throw new InvalidOperationException(message);
+                }
+
+                bytes = File.ReadAllBytes(outputDll);
+            }
+            finally
+            {
+                try { Directory.Delete(callDir, true); } catch { }
+            }
+
+            return Assembly.Load(bytes);
+        }
+
+        private static Assembly CompileWithCodeDom(string code)
+        {
+            var provider = new Microsoft.CSharp.CSharpCodeProvider();
+            var compilerParams = new System.CodeDom.Compiler.CompilerParameters
+            {
+                GenerateInMemory   = true,
+                GenerateExecutable = false,
+            };
+
+            // Deduplicate references to avoid "defined multiple times" errors
+            // caused by Unity domain reloads re-registering the same assemblies.
+            foreach (var path in GetReferences())
+                compilerParams.ReferencedAssemblies.Add(path);
 
             var results = provider.CompileAssemblyFromSource(compilerParams, code);
             if (results.Errors.HasErrors)
             {
                 var errors = new List<string>();
                 foreach (System.CodeDom.Compiler.CompilerError error in results.Errors)
+                {
+                    if (error.IsWarning) continue;
+                    if (error.ErrorText.Contains("is defined multiple times")) continue;
                     errors.Add($"Line {error.Line}: {error.ErrorText}");
-                throw new InvalidOperationException("Compilation errors:\n" + string.Join("\n", errors));
+                }
+                if (errors.Count > 0)
+                    throw new InvalidOperationException("Compilation errors:\n" + string.Join("\n", errors));
             }
 
             return results.CompiledAssembly;
